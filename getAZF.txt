@@ -1,0 +1,625 @@
+using System;
+using System.IO;
+using System.Net;
+using System.Web;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using CompanyDocument.Services;
+
+namespace GeoAccountsAZF
+{
+    public static class getCompanyDocumentAZF
+    {
+        [FunctionName("getCompanyDocumentAZF")]
+        public static async Task<IActionResult> Run(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = null)] HttpRequest req,
+            ILogger log)
+        {
+            log.LogInformation("called getCompanyDocumentAZF.\n");
+
+            string RegId = req.Query["RegId"];
+            CompanyDocumentApi compObj = new CompanyDocumentApi();
+            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            dynamic data = JsonConvert.DeserializeObject(requestBody);
+            RegId = RegId ?? data?.RegId;
+
+            string responseMessage = string.IsNullOrEmpty(RegId)
+                ? "Please provide company registeration Id \"RegId\" for doanloding the doc.\n"
+                : $"Donalodng company docs for registeration Id = {RegId}.\n";
+            if(string.IsNullOrEmpty(RegId)){
+                 return new OkObjectResult(responseMessage);
+            }  
+            bool res = compObj.DownlaodCompanyDoc(RegId);
+            
+             
+            return new OkObjectResult(responseMessage);
+        }
+    }
+
+    public static class getCompanyDocUrlAZF
+    {
+        [FunctionName("getCompanyDocUrlAZF")]
+        public static async Task<HttpResponseMessage> Run(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = null)] HttpRequest req,
+            ILogger log)
+        {
+            log.LogInformation("called getCompanyDocUrlAZF.\n");
+
+            string RegId = req.Query["RegId"];
+
+            CompanyDocumentApi compObj = new CompanyDocumentApi();
+            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            dynamic data = JsonConvert.DeserializeObject(requestBody);
+            RegId = RegId ?? data?.RegId;
+            string html = "";
+            
+            string responseMessage = string.IsNullOrEmpty(RegId)
+                ? "Please provide company registeration Id \"RegId\" for doanloding the doc.\n"
+                : $"Donalodng company docs for registeration Id = {RegId}.\n";
+            var result = new HttpResponseMessage();
+            if(string.IsNullOrEmpty(RegId)){
+                  html = $"<html>{responseMessage}</html>";
+                  result = new HttpResponseMessage(HttpStatusCode.OK);
+                  result.Content = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(html));
+                  //result.Content.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment")
+                 //      { FileName = "file.html" };
+                  //result.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                  result.Content.Headers.ContentType = new MediaTypeHeaderValue("text/html");
+                  return result;
+            }  
+            System.Net.Http.HttpContent response   = await compObj.getCompanyDocUrl(RegId);
+            //responseMessage = responseMessage+$"The URL for document download is = {result}";
+             
+
+
+            result = new HttpResponseMessage(HttpStatusCode.OK);
+            result.Content = new ByteArrayContent(await response.ReadAsByteArrayAsync());
+            //result.Content.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment")
+              //         { FileName = "file.pdf" };
+            result.Content.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
+            return result;
+
+        }
+    }
+    public static class convertToOCRAZF
+    {
+        [FunctionName("convertToOCRAZF")]
+        public static async Task<IActionResult> Run(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = null)] HttpRequest req,
+            ILogger log)
+        {
+            log.LogInformation("called getCompanyDocumentAZF.\n");
+
+            string RegId = req.Query["RegId"];
+            CompanyDocumentApi compObj = new CompanyDocumentApi();
+            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            dynamic data = JsonConvert.DeserializeObject(requestBody);
+            RegId = RegId ?? data?.RegId;
+
+            string responseMessage = string.IsNullOrEmpty(RegId)
+                ? "Please provide company registeration Id \"RegId\" for doanloding the doc.\n"
+                : $"Donalodng company docs for registeration Id = {RegId}.\n";
+            if(string.IsNullOrEmpty(RegId)){
+                 return new OkObjectResult(responseMessage);
+            }  
+            bool res = await compObj.ConvertOCR(RegId);
+            
+             
+            return new OkObjectResult(responseMessage);
+        }
+    }
+}
+
+
+
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AzureFunctionsVersion>v4</AzureFunctionsVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Sdk.Functions" Version="4.0.1"/>
+    <PackageReference Include="RestSharp" Version="106.12.0"/>
+    <PackageReference Include="System.Web.Http.Common" Version="*"/>
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="host.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="local.settings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+</Project>
+
+
+************  Service API
+
+
+using System;
+using System.Text;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+//using System.Net.Http.HttpRequestFactory;
+using System.Net.Http.Headers;
+using RestSharp;
+using Newtonsoft.Json;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+
+namespace CompanyDocument.Services {
+    
+        public class conversionoption {
+            public bool ocr {get; set;}
+
+            public conversionoption (){
+                ocr = true;
+            }
+        }
+        public class conversiondata {
+            public string category {get; set;}
+            public string target {get; set;}
+
+            public conversionoption options {get; set;}
+
+            public conversiondata(){
+                category = "document";
+                target = "pdf";
+                options = new conversionoption();
+            }
+
+        }
+        public class conversionset {
+            public List<conversiondata> conversion { get; set; }
+
+            public conversionset() {
+                conversion = new List<conversiondata>();
+            }
+        }
+
+    public class CompanyDocumentApi {
+         public CompanyDocumentApi() {
+
+         }
+         public async Task<System.Net.Http.HttpContent> getCompanyDocUrl(string RegId) {
+
+            Task<string> documentId = GetFilingHistory(RegId);
+            System.Net.Http.HttpContent DocumentUrl = await GetFilingdocumentUrl(documentId.Result, RegId);
+            //task.Wait();
+            return DocumentUrl;
+         }
+
+         public bool DownlaodCompanyDoc(string RegId) {
+
+            Task<string> documentId = GetFilingHistory(RegId);
+            var Document = GetFilingdocument(documentId.Result, RegId);
+            //task.Wait();
+            return true;
+         }
+
+         private static async Task<string> GetFilingHistory(string compRegId)
+        {
+            var url = "https://api.company-information.service.gov.uk/company/"+compRegId+"/filing-history";
+            var apiKey = "xxxxx:";
+            var encodedKey = Convert.ToBase64String(ASCIIEncoding.ASCII.GetBytes(apiKey));
+
+            using (var client = new HttpClient())
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Authorization", $"Basic {encodedKey}");
+
+                var response = await client.SendAsync(request);
+                var content = await response.Content.ReadAsStringAsync();
+                dynamic Links = JsonConvert.DeserializeObject(content);
+                dynamic itemsarr = Links.items;
+                //Console.WriteLine(itemsarr.Category + " ");
+                DateTime latestDate = DateTime.MinValue;
+                dynamic latestRecord = null;
+                foreach (var item in itemsarr)
+                {
+
+                    var category = item.category;
+                    if (category == "accounts")
+                    {
+                        var docdate = item.date;
+
+                        DateTime itemdate;
+                        itemdate = DateTime.Parse(docdate.ToString("yyyy-MM-dd"));
+
+                        if (itemdate > latestDate)
+                        {
+                            latestDate = itemdate;
+                            latestRecord = item;
+                        }
+                    }
+                 }
+
+                if (latestRecord != null)
+                {
+                    Console.WriteLine($"Document: {latestRecord}");
+                    return latestRecord.links.document_metadata;
+                }
+                else
+                {
+                    return null;
+                }
+
+
+            }
+        }
+
+        private async Task<System.Net.Http.HttpContent> GetFilingdocumentUrl(string docId, string compregId)
+        {
+
+            var url = docId + "/content";
+
+            // var url = docId.Replace("frontend-doc-api", "document-api") + " /content";
+
+            var apiKey = "xxxxxxxxxxxxxx";
+            var encodedKey = Convert.ToBase64String(ASCIIEncoding.ASCII.GetBytes(apiKey));
+
+            using (var client = new HttpClient())
+            {
+               
+                /*
+                //var FileDirectory = Path.Combine(Directory.GetCurrentDirectory(), "DownalodedDoc/");
+                var FileDirectory = @"C:\Users\Anil\Desktop\GeoAccountsAZF\DownloadedDoc\";
+                bool isFilePathExists = System.IO.Directory.Exists(FileDirectory);
+                if (!isFilePathExists)
+                    System.IO.Directory.CreateDirectory(FileDirectory);
+                
+              
+                string downloadurl = url;
+                var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                string outfilename = FileDirectory+compregId+".pdf";
+                
+                if(File.Exists(outfilename)){
+                    File.Delete(outfilename);
+                }
+
+                System.IO.FileInfo f = new System.IO.FileInfo(outfilename);
+                string infilename = System.IO.Path.GetFileNameWithoutExtension(f.FullName);
+              */
+                //string downalodUrl = "";
+                HttpClient hc = new HttpClient();
+                hc.DefaultRequestHeaders.Add("Authorization", $"Basic {encodedKey}");
+                HttpResponseMessage response = await hc.GetAsync(url.ToString());
+                if(response.IsSuccessStatusCode){
+                   System.Net.Http.HttpContent Content = response.Content;
+                   //var fs = new FileStream(outfilename, FileMode.Create, FileAccess.ReadWrite);
+                   //await response.Content.CopyToAsync(fs);
+                   //fs.Dispose();
+                   //fs.Close();
+                   return Content;
+                }else{
+                    return null;
+                }
+                /*
+                 HttpResponseMessage response = await hc.GetAsync(url.ToString());
+                if(response.IsSuccessStatusCode){
+                   System.Net.Http.HttpContent Content = response.Content;
+                   var fs = new FileStream(outfilename, FileMode.Create, FileAccess.ReadWrite);
+                   await response.Content.CopyToAsync(fs);
+                   fs.Dispose();
+                   fs.Close();
+                }else{
+                    return false;
+                }
+                
+               /*    
+                WebClient wc = new WebClient();
+                wc.Headers.Add("Authorization", $"Basic {encodedKey}");
+                
+                wc.DownloadFile(
+                          // Param1 = Link of file
+                          new System.Uri(downloadurl),
+                           //  Param2 = Path to save
+                           outfilename
+                );
+                */
+               // return downalodUrl;
+            }
+        }
+        private async Task<bool> GetFilingdocument(string docId, string compregId)
+        {
+
+            var url = docId + "/content";
+
+            // var url = docId.Replace("frontend-doc-api", "document-api") + " /content";
+
+            var apiKey = "xxxxxxx:";
+            var encodedKey = Convert.ToBase64String(ASCIIEncoding.ASCII.GetBytes(apiKey));
+
+            using (var client = new HttpClient())
+            {
+               
+      
+                //var FileDirectory = Path.Combine(Directory.GetCurrentDirectory(), "DownalodedDoc/");
+                var FileDirectory = @"C:\Users\Anil\Desktop\GeoAccountsAZF\DownloadedDoc\";
+                bool isFilePathExists = System.IO.Directory.Exists(FileDirectory);
+                if (!isFilePathExists)
+                    System.IO.Directory.CreateDirectory(FileDirectory);
+                
+              
+                string downloadurl = url;
+                var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                string outfilename = FileDirectory+compregId+".pdf";
+                
+                if(File.Exists(outfilename)){
+                    File.Delete(outfilename);
+                }
+
+                System.IO.FileInfo f = new System.IO.FileInfo(outfilename);
+                string infilename = System.IO.Path.GetFileNameWithoutExtension(f.FullName);
+              
+                HttpClient hc = new HttpClient();
+                hc.DefaultRequestHeaders.Add("Authorization", $"Basic {encodedKey}");
+                HttpResponseMessage response = await hc.GetAsync(url.ToString());
+                if(response.IsSuccessStatusCode){
+                   System.Net.Http.HttpContent Content = response.Content;
+                   var fs = new FileStream(outfilename, FileMode.Create, FileAccess.ReadWrite);
+                   await response.Content.CopyToAsync(fs);
+                   fs.Dispose();
+                   fs.Close();
+                }else{
+                    return false;
+                }
+                 
+               /*    
+                WebClient wc = new WebClient();
+                wc.Headers.Add("Authorization", $"Basic {encodedKey}");
+                
+                wc.DownloadFile(
+                          // Param1 = Link of file
+                          new System.Uri(downloadurl),
+                           //  Param2 = Path to save
+                           outfilename
+                );
+                */
+                return true;
+            }
+        }
+         private async Task<string> initOCR()
+        {
+            HttpClient client = new HttpClient();
+            string url = "https://api2.online-convert.com/jobs";
+            //var request = new HttpRequestMessage(HttpMethod.Post, url);
+            //request.Headers.Add("x-oc-api-key", "xxxxxx");
+            client.DefaultRequestHeaders.Add("cache-control", "no-cache");
+            client.DefaultRequestHeaders.Add("x-oc-api-key", "3xxxxxx");
+            //var postvalues = new List<KeyValuePair<string, string>>();
+            //postvalues.Add(new KeyValuePair<string, string>("conversion", ""))
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            conversionset postdata = new conversionset();
+            conversionoption option = new conversionoption();
+            conversiondata convdata = new conversiondata();
+            convdata.options = option;
+            postdata.conversion.Add(convdata);
+            var json = JsonConvert.SerializeObject(postdata);
+            var senddata = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await client.PostAsync(url, senddata);
+            string content = await response.Content.ReadAsStringAsync();  
+           /*
+            //var postdata = new Dictionary<string, Array<Dictionary<string, string>>> () { conversion: new Array[{category:"document", target: "pdf", options: {ocr:true}}]};
+            //request.Headers.Add("Authorization", $"Basic {encodedKey}");
+ 
+                var response = await client.SendAsync(request);
+                var content = await response.Content.ReadAsStringAsync();
+                dynamic Links = JsonConvert.DeserializeObject(content);
+                dynamic itemsarr = Links.items; 
+                //Console.WriteLine(itemsarr.Category + " ");
+                DateTime latestDate = DateTime.MinValue;
+                dynamic latestRecord = null;
+                foreach (var item in itemsarr)
+                
+
+
+
+            var client = new RestClient("https://api2.online-convert.com/jobs");
+            var request = new RestRequest(Method.POST);
+
+            request.AddHeader("cache-control", "no-cache");
+            request.AddHeader("x-oc-api-key", "xxxxxx");
+            request.AddParameter("application/json", "{\"conversion\":[{\"category\":\"document\",\"target\":\"pdf\", \"options\":{\"ocr\":true}}]}", ParameterType.RequestBody);
+
+            IRestResponse response = client.Execute(request);
+            */
+            return content;
+        }
+
+        private async Task<string> uploadOCR(string OCRFilePath)
+        {
+            string result;
+            string createid = string.Empty;
+            string serverurl = string.Empty;
+            dynamic JsonRes;
+
+            result = await initOCR();
+            JsonRes = JsonConvert.DeserializeObject(result);
+            //if ((int)result.StatusCode == 201)
+            //{
+
+                createid = JsonRes.id;
+                serverurl = JsonRes.server;
+            //}
+            //else
+            //{
+               // string erromessage = JsonRes.Message;
+            //}
+            /* 
+            string endpoint = serverurl + "/upload-file/" + createid;
+            HttpClient client  = new HttpClient();    
+            //client.DefaultRequestHeaders.Add("Authorization", $"Basic {encodedKey}");
+            client.DefaultRequestHeaders.Add("cache-control", "no-cache");
+            client.DefaultRequestHeaders.Add("x-oc-api-key", "xxxxxx");
+            client.DefaultRequestHeaders.Add("x-oc-upload-uuid", OCRFilePath+ new DateTime());
+            var content = new MultipartFormDataContent();
+            byte[] filebytes = File.ReadAllBytes(OCRFilePath);
+            var filecontent = new ByteArrayContent(filebytes);
+            filecontent.Headers.ContentDisposition = new System.Net.Http.Headers.ContentDispositionHeaderValue("attachment"){FileName = "file"};
+            content.Add(filecontent);
+
+            HttpResponseMessage response = await client.PostAsync(endpoint, content);
+            if(response.StatusCode == System.Net.HttpStatusCode.Created){
+                  //List<string> result = response.Content.ReadAsAsync
+                 JsonRes = JsonConvert.DeserializeObject(response.Content.ReadAsStringAsync().Result);
+                 //System.Console.WriteLine(JsonRes.status.code);
+                return JsonRes.id.job;
+            
+            }else{
+                return "error";
+            }
+              */
+            string endpoint = serverurl + "/upload-file/" + createid;
+            var client = new RestClient(endpoint);
+            var request = new RestRequest(Method.POST);
+
+            request.AddHeader("cache-control", "no-cache");
+            request.AddHeader("x-oc-api-key", "xxxxx");
+            request.AddHeader("x-oc-upload-uuid", OCRFilePath + new DateTime());
+            request.AddFile("file", OCRFilePath, "application/pdf");
+
+            IRestResponse response = client.Execute(request);
+
+            int statuscreate = (int)response.ResponseStatus;
+            JsonRes = JsonConvert.DeserializeObject(response.Content);
+            //System.Console.WriteLine(JsonRes.status.code);
+            if (statuscreate == 1)
+                return JsonRes.id.job;
+            else
+                return "error";
+              
+        } 
+        private dynamic checkjobstatus(string jobid)
+        {
+            string processingStatus = string.Empty;
+            dynamic JsonRes = null;
+            while (processingStatus != "completed")
+            {
+                /*
+                string endpoint = "https://api2.online-convert.com/jobs/" + jobid;
+                HttpClient client = new HttpClient();
+                client.DefaultRequestHeaders.Add("cache-control", "no-cache");
+                client.DefaultRequestHeaders.Add("x-oc-api-key", "xxxxx");
+                HttpResponseMessage response = await client.GetAsync(endpoint);
+                JsonRes = JsonConvert.DeserializeObject(response.Content.ReadAsStringAsync().Result);
+                
+                processingStatus = JsonRes.status.code;
+                */
+                string endpoint = "https://api2.online-convert.com/jobs/" + jobid;
+                var client = new RestClient(endpoint);
+                var request = new RestRequest(Method.GET);
+
+                request.AddHeader("cache-control", "no-cache");
+                request.AddHeader("x-oc-api-key", "xxxxx");
+
+                IRestResponse response = client.Execute(request);
+                JsonRes = JsonConvert.DeserializeObject(response.Content);
+
+                processingStatus = JsonRes.status.code;
+ 
+            }
+
+            return JsonRes;
+        }
+        public async Task<bool> ConvertOCR(string RegiterationNumber)
+        {
+            
+            string filePath, FileDirectory = string.Empty;
+            string FileName = string.Empty;
+            try
+            {
+                if (RegiterationNumber != null)
+                {
+                    string jobid = string.Empty;
+
+                    //FileDirectory = Path.Combine(Directory.GetCurrentDirectory(), "DownloadedDoc/");
+                    FileDirectory = @"C:\Users\Anil\Desktop\GeoAccountsAZF\DownloadedDoc\";
+                    filePath = Path.Combine(FileDirectory, RegiterationNumber);
+                    filePath = filePath + ".pdf";
+                    if (!System.IO.File.Exists(filePath))
+                        return false;
+
+                    jobid = await uploadOCR(filePath);
+
+                    if (!string.IsNullOrEmpty(jobid))
+                    {
+                        dynamic jobstatus;
+                        jobstatus = checkjobstatus(jobid);
+
+                        //if (jobstatus)
+                        {
+                            string downloadurl = jobstatus.output[0].uri;
+                            //FileDirectory = Path.Combine(Directory.GetCurrentDirectory(), "ConvertedOCR/");
+                            FileDirectory = @"C:\Users\Anil\Desktop\GeoAccountsAZF\ConvertedOCR\";
+                            bool isFilePathExists = System.IO.Directory.Exists(FileDirectory);
+                            if (!isFilePathExists)
+                                System.IO.Directory.CreateDirectory(FileDirectory);
+                            System.IO.FileInfo f = new System.IO.FileInfo(filePath);
+
+                            string infilename = System.IO.Path.GetFileNameWithoutExtension(f.FullName);
+                            string outfilename = FileDirectory + "Converted_" + RegiterationNumber;
+                            outfilename = outfilename + ".pdf";
+
+                            HttpClient client = new HttpClient();
+                            //client.DefaultRequestHeaders.Add("Authorization", $"Basic {encodedKey}");
+                            HttpResponseMessage response = await client.GetAsync(downloadurl);
+                            if(response.IsSuccessStatusCode){
+                               System.Net.Http.HttpContent Content = response.Content;
+                               var fs = new FileStream(outfilename, FileMode.Create, FileAccess.ReadWrite);
+                               await response.Content.CopyToAsync(fs);
+                               fs.Dispose();
+                               fs.Close();
+                            }else{
+                                return false;
+                            }
+                            /*
+                            WebClient wc = new WebClient();
+
+                            wc.DownloadFileAsync(
+                                      // Param1 = Link of file
+                                      new System.Uri(downloadurl),
+                                       // Param2 = Path to save
+                                       outfilename
+                            );
+                             */
+
+                        }
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                //SysAdminActivityLog.PostActivityData("error occured while saving file ", ex.Message, ex.StackTrace, "FileManager", "GetActiveClientDepartments", 1);
+                FileName = string.Empty;
+                throw;
+            }
+
+
+            //BusinessProfile objBP = new BusinessProfile();
+            return true;
+            //return Content("<script language='javascript' type='text/javascript'>alert     ('Not Returned Successfully ');</script>");
+        }
+     
+    }
+   
+}
