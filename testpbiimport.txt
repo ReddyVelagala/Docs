@@ -1,0 +1,110 @@
+using namespace System.Net
+param($Request, $TriggerMetadata)
+# Input bindings are passed in via param block.
+# Interact with query parameters or the body of the request.
+$srcWsName = $Request.Query.srcWsName
+if (-not $srcWsName) {
+    $srcWsName = $Request.Body.srcWsName
+}
+$destWsName = $Request.Query.destWsName
+if (-not $destWsName) {
+    $destWsName = $Request.Body.destWsName
+}
+
+if(-not $srcWsName){
+    $body = $body+"Source Workspace name is not received. use {srcWsName} parameter in query string.\n"
+    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+        StatusCode = [HttpStatusCode]::BadRequest
+        Body = $body
+    })
+    Exit
+}
+if(-not $destWsName){
+    $body = $body+"Destination Workspace name is not received. use {destWsName} parameter in query string.\n"
+    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+        StatusCode = [HttpStatusCode]::BadRequest
+        Body = $body
+    })
+    Exit
+}
+
+$AppId = "xxxxx"
+$TenantId = "xxxxxxxxxx"
+$ClientSecret = "xxxxxxxxx" 
+
+#Create secure string & credential for application id and client secret
+$PbiSecurePassword = ConvertTo-SecureString $ClientSecret -Force -AsPlainText
+$PbiCredential = New-Object Management.Automation.PSCredential($AppId, $PbiSecurePassword)
+#Connect to the Power BI service
+Connect-PowerBIServiceAccount -ServicePrincipal -TenantId $TenantId -Credential $PbiCredential
+
+$source_workspace_ID = (Get-PowerBIWorkspace -Name $srcWsName).Id
+$target_workspace_ID = (Get-PowerBIWorkspace -Name $destWsName).Id
+
+$srcReports = Get-PowerBIReport -WorkspaceId $source_workspace_ID
+#$reports
+#$tempPath = $env:TEMP
+#$tempPath
+$pwd.Path
+$directoryName = $pwd.Path+"\temp"
+if (-not (Test-Path -Path $directoryName)) {
+  $newDirectory = New-Item -Path . -Name "temp" -ItemType "directory"
+}else{
+  $newDirectory = $directoryName  
+}
+#$newDirectory
+#$newfile = $newDirectory+'\'+'test.txt'
+#if(-not (Test-Path -Path $newfile))
+#{
+ #   New-Item -Path $newfile -ItemType File
+#}
+Get-ChildItem -Path $newDirectory
+
+foreach($srcReportData IN $srcReports)
+{
+     $destReports =  Get-PowerBIReport -WorkspaceId $target_workspace_ID 
+     foreach($destReportData IN $destReports)
+     {
+        if($destReportData.Name.ToLower() -eq $srcReportData.Name.ToLower())
+        {
+            Remove-PowerBIReport -Id $destReportData.Id -WorkspaceId $target_workspace_ID
+        }
+     }
+
+
+     $destDatasets = Get-PowerBIDataset -WorkspaceId $target_workspace_ID
+     foreach($destDatasetsData IN $destDatasets)
+     {
+         $destDatasetsData
+        if($destDatasetsData.Name.ToLower() -eq $srcReportData.Name.ToLower()){
+            $destExistingDataset = $destDatasetsData
+        }
+     }
+
+     if(-not $destExistingDataset)
+     {
+        $outreport =  $newDirectory+'\'+$srcReportData.Name+'.pbix'
+        #$outreport
+        $removefilespath = $newDirectory+'\'+'*'
+        #$removefilespath
+        Remove-Item $removefilespath
+        Get-ChildItem -Path $newDirectory
+        #$srcReportPbix = $null
+        $srcReportPbix = Export-PowerBIReport -Id  $srcReportData.Id -Outfile $outreport -WorkspaceId $srcReportData.Id
+        #$srcReportPbix
+
+        #if($srcReportPbix  -ne $null)
+        #{
+            $uploadFile = $newDirectory+'\'+$srcReportData.Name+'.pbix'
+            New-PowerBIReport -Path $uploadFile -WorkspaceId $target_workspace_ID
+        #}
+     }else{
+        Copy-PowerBIReport -Name $srcReportData.Name -Id $srcReportData.Id -WorkspaceId  $source_workspace_ID -TargetWorkspaceId $target_workspace_ID -TargetDatasetId $destExistingDataset.Id
+     }
+}
+
+Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    StatusCode = [HttpStatusCode]::OK
+    Body = $body
+})
+exit
