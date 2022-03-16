@@ -1,0 +1,161 @@
+#Get PowerBI Groups called as Workspaces
+
+using namespace System.Net
+
+
+param($Request, $TriggerMetadata)
+
+
+Write-Host "PowerShell HTTP trigger function processed a request."
+
+
+$name = $Request.Query.Name
+if (-not $name) {
+    $name = $Request.Body.Name
+}
+
+$body = "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response."
+
+if ($name) {
+     $body = "Hello, $name. This HTTP triggered function executed successfully."
+}
+
+# Application-TenantId-ClientSecrets
+
+$reportsurl="&id="
+$subscriptionurl="&id="
+$usersurl="&id="
+
+
+$AppId = "xxx"
+$TenantId = "xxx"
+$ClientSecret = "xxx" 
+
+#Create secure string & credential for application id and client secret
+$PbiSecurePassword = ConvertTo-SecureString $ClientSecret -Force -AsPlainText
+$PbiCredential = New-Object Management.Automation.PSCredential($AppId, $PbiSecurePassword)
+#Connect to the Power BI service
+Connect-PowerBIServiceAccount -ServicePrincipal -TenantId $TenantId -Credential $PbiCredential
+$headers = Get-PowerBIAccessToken
+$Workspaces =Invoke-RestMethod -Headers $headers -Uri 'https://api.powerbi.com/v1.0/myorg/groups' -Method Get 
+$Workspace=$Workspaces.value | select id,name,type,isOnDedicatedCapacity,isReadOnly ,@{name="reportslink";expression={$reportsurl + $_.id }} ,@{name="subscriptionslink";expression={$subscriptionurl + $_.id }},@{name="userslink";expression={$usersurl + $_.id }}
+# Associate values to output bindings by calling 'Push-OutputBinding'.
+Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    StatusCode = [HttpStatusCode]::OK
+    Body = $Workspace
+})
+
+
+
+
+#Get PowerBI Reports in a Group
+
+using namespace System.Net
+
+
+param($Request, $TriggerMetadata)
+
+
+Write-Host "PowerShell HTTP trigger function processed a request."
+
+
+$Id = $Request.Query.Id
+if (-not $Id) {
+    $Id = $Request.Body.Id
+}
+
+$body = "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response."
+
+if ($Id) {
+     $body = "Hello, $Id. This HTTP triggered function executed successfully."
+}
+
+Write-Host ($Id)
+$reportslist=$Id +'/reports'
+
+$ApiUrl='https://api.powerbi.com/v1.0/myorg/groups/' + $reportslist
+Write-Host $ApiUrl
+
+
+# Application-TenantId-ClientSecrets
+
+$AppId = "xxx"
+$TenantId = "xxx"
+$ClientSecret = "xxxx" 
+
+#Create secure string & credential for application id and client secret
+$PbiSecurePassword = ConvertTo-SecureString $ClientSecret -Force -AsPlainText
+$PbiCredential = New-Object Management.Automation.PSCredential($AppId, $PbiSecurePassword)
+#Connect to the Power BI service
+Connect-PowerBIServiceAccount -ServicePrincipal -TenantId $TenantId -Credential $PbiCredential
+$headers = Get-PowerBIAccessToken
+$Reports =Invoke-RestMethod -Headers $headers -Uri $ApiUrl -Method Get
+$Report=$Reports.value 
+
+
+
+# Associate values to output bindings by calling 'Push-OutputBinding'.
+Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    StatusCode = [HttpStatusCode]::OK
+    Body = $Report
+})
+
+
+
+#Get PowerBI Workspace Users
+
+using namespace System.Net
+
+
+param($Request, $TriggerMetadata)
+
+
+Write-Host "PowerShell HTTP trigger function processed a request."
+
+
+$Id = $Request.Query.Id
+if (-not $Id) {
+    $Id = $Request.Body.Id
+}
+
+$body = "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response."
+
+if ($Id) {
+     $body = "Hello, $Id. This HTTP triggered function executed successfully."
+}
+
+Write-Host ($Id)
+$userslist=$Id +'/users'
+
+$ApiUrl='https://api.powerbi.com/v1.0/myorg/groups/' + $userslist
+Write-Host $ApiUrl
+
+
+# Application-TenantId-ClientSecrets
+
+$AppId = "xxx"
+$TenantId = "xxx"
+$ClientSecret = "xxx" 
+
+#Create secure string & credential for application id and client secret
+$PbiSecurePassword = ConvertTo-SecureString $ClientSecret -Force -AsPlainText
+$PbiCredential = New-Object Management.Automation.PSCredential($AppId, $PbiSecurePassword)
+#Connect to the Power BI service
+Connect-PowerBIServiceAccount -ServicePrincipal -TenantId $TenantId -Credential $PbiCredential
+$headers = Get-PowerBIAccessToken
+$WorkspaceUsers =Invoke-RestMethod -Headers $headers -Uri $ApiUrl -Method Get
+$WorkspaceUser =$WorkspaceUsers.value 
+
+
+
+# Associate values to output bindings by calling 'Push-OutputBinding'.
+Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    StatusCode = [HttpStatusCode]::OK
+    Body = $Report
+})
+
+
+
+
+
+
