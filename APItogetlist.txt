@@ -1,0 +1,65 @@
+# Get the list of AAD Users
+
+using namespace System.Net
+
+
+param($Request, $TriggerMetadata)
+
+
+Write-Host "PowerShell HTTP trigger function processed a request."
+Set-ExecutionPolicy Bypass -Scope Process
+
+
+$name = $Request.Query.Name
+if (-not $name) {
+    $name = $Request.Body.Name
+}
+
+$body = "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response."
+
+if ($name) {
+     $body = "Hello, $name. This HTTP triggered function executed successfully."
+}
+
+# Application (client) ID, tenant Name and secret
+
+$clientId = "zzzz"
+$tenantName = ""
+$clientSecret = ""
+$resource = "https://graph.microsoft.com/"
+
+$ReqTokenBody = @{
+    Grant_Type    = "client_credentials"
+    Scope         = "https://graph.microsoft.com/.default"
+    client_Id     = $clientId
+    Client_Secret = $clientSecret
+
+} 
+
+$tokenResponse = Invoke-WebRequest -Uri "https://login.microsoftonline.com/$tenantName/oauth2/v2.0/token" -Method POST -Body $ReqTokenBody -UseBasicParsing
+# Extract the Access Token
+$token = ($tokenResponse.Content | ConvertFrom-Json).access_token
+$token
+#The Graph API URL
+$searchstring = "Q"
+$uri = "https://graph.microsoft.com/v1.0/users/8260b743-f671-40e0-a497-00d703d3ed68/licenseDetails"
+ $method = "GET"
+
+$header = @{
+    Authorization = "Bearer $token"
+    ConsistencyLevel = "eventual"
+} 
+# Run the Graph API query to retrieve users
+$output = Invoke-RestMethod -Method $method -Uri $uri -ContentType "application/json" -Headers $header 
+$outputdata=$output.value 
+
+# for full list of columns 
+# $outputdata=$output.value 
+
+
+
+# Associate values to output bindings by calling 'Push-OutputBinding'.
+Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    StatusCode = [HttpStatusCode]::OK
+    Body = $outputdata
+})
